@@ -1,0 +1,6 @@
+@Backend.Consumidor.Api_HostAddress = http://localhost:5183
+
+GET {{Backend.Consumidor.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
