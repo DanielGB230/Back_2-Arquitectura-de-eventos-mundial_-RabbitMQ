@@ -17,7 +17,8 @@ public static class MatchStatsEndpoints
                 return operation;
             });
 
-        app.MapGet("/api/match-statistics/{matchId}", async (int matchId, MatchDbContext dbContext) =>
+        // CAMBIO: matchId ahora es Guid
+        app.MapGet("/api/match-statistics/{matchId}", async (Guid matchId, MatchDbContext dbContext) =>
         {
             var match = await dbContext.Matches.FindAsync(matchId);
             var stats = await dbContext.MatchStatistics.FindAsync(matchId);

@@ -42,9 +42,13 @@ public class NotificationsConsumer : BackgroundService
         _channel.ExchangeDeclare(ExchangeName, ExchangeType.Topic, durable: true, autoDelete: false);
         _channel.QueueDeclare(QueueName, durable: true, exclusive: false, autoDelete: false);
         
+        // BINDINGS: Usamos el comodín # para escuchar TODO lo relacionado con un match
+        // o definimos explícitamente cada uno. Definirlos todos asegura que nada se escape.
         _channel.QueueBind(QueueName, ExchangeName, "worldcup.match.*.goal");
         _channel.QueueBind(QueueName, ExchangeName, "worldcup.match.*.matchstarted");
         _channel.QueueBind(QueueName, ExchangeName, "worldcup.match.*.matchended");
+        _channel.QueueBind(QueueName, ExchangeName, "worldcup.match.*.card");
+        _channel.QueueBind(QueueName, ExchangeName, "worldcup.match.*.substitution");
         
         _logger.LogInformation("NOTIFICATIONS-CONSUMER: Esperando mensajes en la cola '{QueueName}'...", QueueName);
 
@@ -59,7 +63,7 @@ public class NotificationsConsumer : BackgroundService
     private async Task OnMessageReceived(object sender, BasicDeliverEventArgs ea)
     {
         var message = Encoding.UTF8.GetString(ea.Body.ToArray());
-        _logger.LogInformation("NOTIFICATIONS-CONSUMER: Mensaje recibido.");
+        _logger.LogInformation("NOTIFICATIONS-CONSUMER: Mensaje recibido con routing key: {RoutingKey}", ea.RoutingKey);
 
         try
         {
@@ -73,7 +77,7 @@ public class NotificationsConsumer : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "NOTIFICATIONS-CONSUMER: Error procesando el mensaje. Enviando a NACK. Mensaje: {Message}", message);
+            _logger.LogError(ex, "NOTIFICATIONS-CONSUMER: Error procesando el mensaje.");
             _channel.BasicNack(ea.DeliveryTag, multiple: false, requeue: false);
         }
     }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Backend.Consumidor.Api.Data;
 using Backend.Consumidor.Api.Data.Models;
 using Shared.Contracts.Enums;
@@ -35,53 +36,69 @@ public class PersistenceService : IPersistenceService
 
         var eventType = (EventType)eventTypeByte;
 
-        var matchId = root.GetProperty("MatchId").GetInt32();
+        if (!root.TryGetProperty("MatchId", out var matchIdProp) || !Guid.TryParse(matchIdProp.GetString(), out var matchId))
+        {
+             _logger.LogError("PERSISTENCE-SERVICE: MatchId no válido o ausente.");
+             return;
+        }
+
         _logger.LogInformation("PERSISTENCE-SERVICE: Procesando evento: {EventType} para MatchId: {MatchId}", eventType, matchId);
 
-        // 1. Preparamos el evento, PERO NO LO AGREGAMOS AL CONTEXTO TODAVÍA
-        // Nota: No asignamos MatchId aquí si es 0, dejaremos que EF lo resuelva si es un Match nuevo.
         var matchEvent = new Data.Models.MatchEvent
         {
             EventId = root.GetProperty("EventId").GetGuid(),
-            // MatchId = matchId,  <-- REMOVIDO: Lo asignaremos condicionalmente abajo
+            MatchId = matchId,
             EventType = eventType,
             EventTime = root.GetProperty("EventTime").GetDateTime(),
             EventPayload = message
         };
 
+        if (await dbContext.MatchEvents.AnyAsync(e => e.EventId == matchEvent.EventId))
+        {
+             _logger.LogWarning("PERSISTENCE-SERVICE: Evento {EventId} ya fue procesado. Ignorando.", matchEvent.EventId);
+             return;
+        }
+
         switch (eventType)
         {
             case EventType.MatchStarted:
-                var startEvent = JsonSerializer.Deserialize<MatchStartedEvent>(message, options)!;
+                var existingMatch = await dbContext.Matches.FindAsync(matchId);
                 
-                var newMatch = new Match
+                if (existingMatch != null)
                 {
-                    HomeTeamId = startEvent.HomeTeamId,
-                    AwayTeamId = startEvent.AwayTeamId,
-                    HomeTeamName = startEvent.HomeTeamName,
-                    AwayTeamName = startEvent.AwayTeamName,
-                    HomeScore = 0,
-                    AwayScore = 0,
-                    Status = MatchStatus.InProgress,
-                    MatchStatistic = new MatchStatistic()
-                };
+                    _logger.LogWarning("PERSISTENCE-SERVICE: Match {MatchId} ya existe. Se recibió evento MatchStarted duplicado.", matchId);
+                    matchEvent.Match = existingMatch;
+                }
+                else
+                {
+                    var startEvent = JsonSerializer.Deserialize<MatchStartedEvent>(message, options)!;
+                    
+                    var newMatch = new Match
+                    {
+                        MatchId = matchId,
+                        HomeTeamId = startEvent.HomeTeamId,
+                        AwayTeamId = startEvent.AwayTeamId,
+                        HomeTeamName = startEvent.HomeTeamName,
+                        AwayTeamName = startEvent.AwayTeamName,
+                        HomeScore = 0,
+                        AwayScore = 0,
+                        Status = MatchStatus.InProgress,
+                        MatchStatistic = new MatchStatistic()
+                    };
 
-                // SOLUCIÓN CLAVE: Vinculación por objeto, no por ID
-                // Le decimos al evento: "Tu partido es este nuevo objeto que acabo de crear"
-                matchEvent.Match = newMatch; 
+                    matchEvent.Match = newMatch; 
+                    dbContext.Matches.Add(newMatch);
+                    _logger.LogInformation("PERSISTENCE-SERVICE: Nuevo Match creado: {MatchId}", matchId);
+                }
                 
-                // Agregamos ambos (aunque al agregar newMatch, EF suele detectar el hijo automáticamente)
-                dbContext.Matches.Add(newMatch);
                 dbContext.MatchEvents.Add(matchEvent);
                 break;
 
             case EventType.MatchEnded:
-                // Para eventos existentes, SÍ usamos el ID que viene en el mensaje
-                matchEvent.MatchId = matchId;
                 dbContext.MatchEvents.Add(matchEvent);
 
                 var endEvent = JsonSerializer.Deserialize<MatchEndedEvent>(message, options)!;
-                var matchToEnd = await dbContext.Matches.FindAsync(endEvent.MatchId);
+                var matchToEnd = await dbContext.Matches.FindAsync(matchId);
                 if (matchToEnd != null)
                 {
                     matchToEnd.Status = MatchStatus.Finished;
@@ -91,41 +108,34 @@ public class PersistenceService : IPersistenceService
                 break;
 
             case EventType.Goal:
-                // Para eventos existentes, SÍ usamos el ID que viene en el mensaje
-                matchEvent.MatchId = matchId;
                 dbContext.MatchEvents.Add(matchEvent);
 
                 var goalEvent = JsonSerializer.Deserialize<GoalEvent>(message, options)!;
-                var matchToUpdate = await dbContext.Matches.FindAsync(goalEvent.MatchId);
+                var matchToUpdate = await dbContext.Matches.FindAsync(matchId);
                 if (matchToUpdate != null)
                 {
-                    _logger.LogInformation("PERSISTENCE-SERVICE: Comparando TeamId del Gol ({GoalTeamId}) con HomeTeamId ({HomeTeamId}) y AwayTeamId ({AwayTeamId}).", 
-                                           goalEvent.TeamId, matchToUpdate.HomeTeamId, matchToUpdate.AwayTeamId);
-
                     if (goalEvent.TeamId == matchToUpdate.HomeTeamId)
                     {
                         matchToUpdate.HomeScore++;
-                        _logger.LogInformation("PERSISTENCE-SERVICE: Gol para HomeTeam. Nuevo marcador: {HomeScore}-{AwayScore}", matchToUpdate.HomeScore, matchToUpdate.AwayScore);
                     }
                     else if (goalEvent.TeamId == matchToUpdate.AwayTeamId)
                     {
                         matchToUpdate.AwayScore++;
-                        _logger.LogInformation("PERSISTENCE-SERVICE: Gol para AwayTeam. Nuevo marcador: {HomeScore}-{AwayScore}", matchToUpdate.HomeScore, matchToUpdate.AwayScore);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("PERSISTENCE-SERVICE: El TeamId {TeamId} del evento de gol no corresponde a ningún equipo en el MatchId {MatchId}.", goalEvent.TeamId, matchToUpdate.MatchId);
                     }
                 }
-                else
-                {
-                    _logger.LogError("PERSISTENCE-SERVICE: No se encontró el partido con MatchId {MatchId} para procesar el gol.", goalEvent.MatchId);
-                }
+                break;
+
+            // --- NUEVO: SOPORTE PARA TARJETAS Y CAMBIOS ---
+            case EventType.Card:
+            case EventType.Substitution:
+                // Solo registramos el evento en la tabla MatchEvents.
+                // Las ESTADÍSTICAS (contadores) las actualiza el StatisticsService.
+                // Sin embargo, debemos asegurar que el registro de MatchEvent esté vinculado.
+                dbContext.MatchEvents.Add(matchEvent);
+                _logger.LogInformation("PERSISTENCE-SERVICE: Registrando evento {EventType} en el historial.", eventType);
                 break;
                 
             default:
-                // Caso por defecto para otros eventos
-                matchEvent.MatchId = matchId;
                 dbContext.MatchEvents.Add(matchEvent);
                 break;
         }
@@ -133,12 +143,12 @@ public class PersistenceService : IPersistenceService
         try 
         {
             await dbContext.SaveChangesAsync();
-            _logger.LogInformation("PERSISTENCE-SERVICE: Evento procesado y guardado correctamente.");
+            _logger.LogInformation("PERSISTENCE-SERVICE: Guardado exitoso.");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "PERSISTENCE-SERVICE: Error guardando en BD.");
-            throw; // Re-lanzar para que el consumidor haga NACK/Reintento
+            throw; 
         }
     }
 }

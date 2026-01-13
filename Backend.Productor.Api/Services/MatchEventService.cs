@@ -17,14 +17,19 @@ public class MatchEventService : IMatchEventService
 
     public void PublishStartMatchEvent(StartMatchRequest request)
     {
+        // GENERACIÓN DE ID: Si el cliente no envía ID, generamos uno nuevo.
+        // Esto es crucial para que todos los servicios compartan el mismo ID desde el segundo 0.
+        var matchId = request.MatchId ?? Guid.NewGuid();
+
         var matchEvent = new MatchStartedEvent
         {
+            MatchId = matchId,
             HomeTeamId = request.HomeTeamId.Value,
             AwayTeamId = request.AwayTeamId.Value,
             HomeTeamName = request.HomeTeamName,
             AwayTeamName = request.AwayTeamName
         };
-        var routingKey = $"worldcup.match.{request.MatchId}.{EventType.MatchStarted.ToString().ToLower()}";
+        var routingKey = $"worldcup.match.{matchId}.{EventType.MatchStarted.ToString().ToLower()}";
         _producer.PublishMessage(matchEvent, ExchangeName, routingKey);
     }
 

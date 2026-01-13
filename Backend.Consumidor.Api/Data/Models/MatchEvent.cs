@@ -8,7 +8,7 @@ public class MatchEvent
     [Key]
     public Guid EventId { get; set; }
     
-    public int MatchId { get; set; }
+    public Guid MatchId { get; set; }
     public Match Match { get; set; } = null!;
 
     public EventType EventType { get; set; }

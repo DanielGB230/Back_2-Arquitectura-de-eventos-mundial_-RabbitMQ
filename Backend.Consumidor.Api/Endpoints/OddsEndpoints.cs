@@ -10,7 +10,8 @@ public static class OddsEndpoints
 {
     public static void MapOddsEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/odds/{matchId}", async (int matchId, IOddsService oddsService, MatchDbContext dbContext) =>
+        // CAMBIO: matchId ahora es Guid
+        app.MapGet("/api/odds/{matchId}", async (Guid matchId, IOddsService oddsService, MatchDbContext dbContext) =>
         {
             var odds = oddsService.GetOdds(matchId);
 

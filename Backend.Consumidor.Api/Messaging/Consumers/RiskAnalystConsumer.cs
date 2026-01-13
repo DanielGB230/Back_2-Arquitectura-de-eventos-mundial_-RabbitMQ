@@ -90,15 +90,16 @@ public class RiskAnalystConsumer : BackgroundService
                     _channel.BasicNack(ea.DeliveryTag, multiple: false, requeue: false);
                     return;
                 }
-                if (!root.TryGetProperty("MatchId", out var matchIdElement) || !matchIdElement.TryGetInt32(out var matchIdInt))
+
+                // CAMBIO: Extraer MatchId como Guid
+                if (!root.TryGetProperty("MatchId", out var matchIdElement) || !Guid.TryParse(matchIdElement.GetString(), out var matchId))
                 {
-                    _logger.LogWarning("RISK-ANALYST-CONSUMER: No se pudo determinar el MatchId del mensaje.");
+                    _logger.LogWarning("RISK-ANALYST-CONSUMER: No se pudo determinar el MatchId del mensaje (o no es un Guid válido).");
                     _channel.BasicNack(ea.DeliveryTag, multiple: false, requeue: false);
                     return;
                 }
 
                 var eventType = (EventType)eventTypeByte;
-                var matchId = matchIdInt;
 
                 await oddsService.AdjustOddsForEvent(matchId, eventType, message);
             }

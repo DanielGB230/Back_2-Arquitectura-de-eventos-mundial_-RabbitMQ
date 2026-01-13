@@ -6,8 +6,7 @@ namespace Backend.Consumidor.Api.Data.Models;
 public class Match
 {
     [Key]
-    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
-    public int MatchId { get; set; }
+    public Guid MatchId { get; set; }
 
     public int HomeTeamId { get; set; } // Added HomeTeamId
     public int AwayTeamId { get; set; } // Added AwayTeamId

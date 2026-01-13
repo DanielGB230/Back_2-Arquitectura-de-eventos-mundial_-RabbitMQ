@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Backend.Consumidor.Api.Migrations
 {
     /// <inheritdoc />
-    public partial class UpdateMatchIdGeneration : Migration
+    public partial class initsd : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -15,8 +15,7 @@ namespace Backend.Consumidor.Api.Migrations
                 name: "Matches",
                 columns: table => new
                 {
-                    MatchId = table.Column<int>(type: "int", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
+                    MatchId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     HomeTeamId = table.Column<int>(type: "int", nullable: false),
                     AwayTeamId = table.Column<int>(type: "int", nullable: false),
                     HomeTeamName = table.Column<string>(type: "nvarchar(max)", nullable: false),
@@ -35,7 +34,7 @@ namespace Backend.Consumidor.Api.Migrations
                 columns: table => new
                 {
                     EventId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    MatchId = table.Column<int>(type: "int", nullable: false),
+                    MatchId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     EventType = table.Column<int>(type: "int", nullable: false),
                     EventTime = table.Column<DateTime>(type: "datetime2", nullable: false),
                     EventPayload = table.Column<string>(type: "nvarchar(max)", nullable: false)
@@ -55,7 +54,7 @@ namespace Backend.Consumidor.Api.Migrations
                 name: "MatchStatistics",
                 columns: table => new
                 {
-                    MatchId = table.Column<int>(type: "int", nullable: false),
+                    MatchId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     TotalGoals = table.Column<int>(type: "int", nullable: false),
                     TotalYellowCards = table.Column<int>(type: "int", nullable: false),
                     TotalRedCards = table.Column<int>(type: "int", nullable: false),

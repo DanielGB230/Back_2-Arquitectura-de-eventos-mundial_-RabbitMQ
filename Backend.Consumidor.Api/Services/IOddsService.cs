@@ -5,6 +5,6 @@ namespace Backend.Consumidor.Api.Services;
 
 public interface IOddsService
 {
-    Task AdjustOddsForEvent(int matchId, EventType eventType, string eventDetailsJson);
-    (double HomeWin, double Draw, double AwayWin)? GetOdds(int matchId);
+    Task AdjustOddsForEvent(Guid matchId, EventType eventType, string eventDetailsJson);
+    (double HomeWin, double Draw, double AwayWin)? GetOdds(Guid matchId);
 }

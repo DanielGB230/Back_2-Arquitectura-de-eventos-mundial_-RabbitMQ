@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Backend.Consumidor.Api.Data;
@@ -30,40 +31,61 @@ public class NotificationsService : INotificationsService
 
         if (!root.TryGetProperty("EventType", out var eventTypeElement) || !eventTypeElement.TryGetByte(out var eventTypeByte))
         {
-            _logger.LogWarning("NOTIFICATIONS-SERVICE: No se pudo determinar el EventType del mensaje.");
             return;
         }
         
-        if (!root.TryGetProperty("MatchId", out var matchIdElement) || !matchIdElement.TryGetInt32(out var matchIdInt))
+        if (!root.TryGetProperty("MatchId", out var matchIdElement) || !Guid.TryParse(matchIdElement.GetString(), out var matchId))
         {
-            _logger.LogWarning("NOTIFICATIONS-SERVICE: No se pudo determinar el MatchId del mensaje.");
             return;
         }
 
         var eventType = ((Shared.Contracts.Enums.EventType)eventTypeByte).ToString();
-        var matchId = matchIdInt;
 
-        _logger.LogInformation("NOTIFICATIONS-SERVICE: Evento '{EventType}' recibido para MatchId {MatchId}. Obteniendo estadísticas actualizadas...", eventType, matchId);
+        // LOG CRÍTICO: Para saber que el servicio despertó
+        _logger.LogInformation("NOTIFICATIONS-SERVICE: Procesando '{EventType}' para MatchId {MatchId}", eventType, matchId);
 
-        // Pragmatic delay to increase the chance that other services have finished updating the database.
-        // This helps deal with the eventual consistency of the distributed event handling.
-        await Task.Delay(250);
+        // Aumentamos ligeramente el delay para dar tiempo a Persistence y Statistics
+        await Task.Delay(350);
 
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<MatchDbContext>();
 
-            var match = await dbContext.Matches.FindAsync(matchId);
-            var stats = await dbContext.MatchStatistics.FindAsync(matchId);
+            // Forzamos la recarga desde la DB para evitar caché de EF
+            var match = await dbContext.Matches.AsNoTracking().FirstOrDefaultAsync(m => m.MatchId == matchId);
+            var stats = await dbContext.MatchStatistics.AsNoTracking().FirstOrDefaultAsync(m => m.MatchId == matchId);
 
             if (match == null || stats == null)
             {
-                _logger.LogError("NOTIFICATIONS-SERVICE: No se encontraron datos de partido o estadísticas para MatchId {MatchId} después de un evento. No se enviará notificación.", matchId);
+                _logger.LogWarning("NOTIFICATIONS-SERVICE: Reintentando búsqueda de datos para {MatchId}...", matchId);
+                await Task.Delay(500);
+                match = await dbContext.Matches.AsNoTracking().FirstOrDefaultAsync(m => m.MatchId == matchId);
+                stats = await dbContext.MatchStatistics.AsNoTracking().FirstOrDefaultAsync(m => m.MatchId == matchId);
+            }
+
+            if (match == null || stats == null)
+            {
+                _logger.LogError("NOTIFICATIONS-SERVICE: No hay datos en DB para {MatchId}", matchId);
                 return;
             }
 
-            // Combine data into a single object, same as the API endpoint.
+            object? latestEventData = null;
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            switch (eventType)
+            {
+                case "Goal":
+                    latestEventData = JsonSerializer.Deserialize<Shared.Contracts.Events.GoalEvent>(message, options);
+                    break;
+                case "Card":
+                    latestEventData = JsonSerializer.Deserialize<Shared.Contracts.Events.CardEvent>(message, options);
+                    break;
+                case "Substitution":
+                    latestEventData = JsonSerializer.Deserialize<Shared.Contracts.Events.SubstitutionEvent>(message, options);
+                    break;
+            }
+
             var combinedData = new 
             {
                 match.MatchId,
@@ -78,17 +100,37 @@ public class NotificationsService : INotificationsService
                 stats.TotalYellowCards,
                 stats.TotalRedCards,
                 stats.TotalSubstitutions,
-                stats.TotalEvents
+                stats.TotalEvents,
+                LatestEvent = latestEventData
             };
 
-            // Send the complete, updated statistics object to all clients in the group.
-            await _hubContext.Clients.Group(matchId.ToString()).SendAsync("MatchStatsUpdated", combinedData, CancellationToken.None);
+            var jsonString = JsonSerializer.Serialize(combinedData);
 
-            _logger.LogInformation("NOTIFICATIONS-SERVICE: Estadísticas actualizadas para MatchId {MatchId} enviadas al grupo SignalR.", matchId);
+            if (eventType == "MatchStarted")
+            {
+                await _hubContext.Clients.All.SendAsync("MatchStarted", jsonString);
+                _logger.LogInformation("NOTIFICATIONS-SERVICE: Broadast MatchStarted");
+            }
+            else if (eventType == "MatchEnded")
+            {
+                await _hubContext.Clients.All.SendAsync("MatchEnded", jsonString);
+                _logger.LogInformation("NOTIFICATIONS-SERVICE: Broadast MatchEnded");
+            }
+            else
+            {
+                // ENVÍO A GRUPO Y GLOBAL (Si es gol)
+                await _hubContext.Clients.Group(matchId.ToString()).SendAsync("MatchStatsUpdated", jsonString);
+                
+                if (eventType == "Goal")
+                {
+                    await _hubContext.Clients.All.SendAsync("ScoreUpdated", jsonString);
+                }
+                _logger.LogInformation("NOTIFICATIONS-SERVICE: Mensaje enviado a SignalR para {EventType}", eventType);
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "NOTIFICATIONS-SERVICE: Error al procesar y enviar notificación de estadísticas para MatchId {MatchId}.", matchId);
+            _logger.LogError(ex, "NOTIFICATIONS-SERVICE: Error enviando a SignalR.");
         }
     }
 }

@@ -5,7 +5,7 @@ namespace Backend.Consumidor.Api.Data.Models;
 public class MatchStatistic
 {
     [Key]
-    public int MatchId { get; set; }
+    public Guid MatchId { get; set; }
     
     public Match Match { get; set; }
 

@@ -24,11 +24,9 @@ namespace Backend.Consumidor.Api.Migrations
 
             modelBuilder.Entity("Backend.Consumidor.Api.Data.Models.Match", b =>
                 {
-                    b.Property<int>("MatchId")
+                    b.Property<Guid>("MatchId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("MatchId"));
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("AwayScore")
                         .HasColumnType("int");
@@ -75,8 +73,8 @@ namespace Backend.Consumidor.Api.Migrations
                     b.Property<int>("EventType")
                         .HasColumnType("int");
 
-                    b.Property<int>("MatchId")
-                        .HasColumnType("int");
+                    b.Property<Guid>("MatchId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.HasKey("EventId");
 
@@ -87,8 +85,8 @@ namespace Backend.Consumidor.Api.Migrations
 
             modelBuilder.Entity("Backend.Consumidor.Api.Data.Models.MatchStatistic", b =>
                 {
-                    b.Property<int>("MatchId")
-                        .HasColumnType("int");
+                    b.Property<Guid>("MatchId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("TotalEvents")
                         .HasColumnType("int");

@@ -32,63 +32,41 @@ public class StatisticsService : IStatisticsService
             return;
         }
 
-        if (!root.TryGetProperty("MatchId", out var matchIdElement) || !matchIdElement.TryGetInt32(out var matchIdInt))
+        // CAMBIO: Usar Guid para MatchId
+        if (!root.TryGetProperty("MatchId", out var matchIdElement) || !Guid.TryParse(matchIdElement.GetString(), out var matchId))
         {
-            _logger.LogWarning("STATS-SERVICE: No se pudo determinar el MatchId del mensaje.");
+            _logger.LogWarning("STATS-SERVICE: No se pudo determinar el MatchId del mensaje (o no es un Guid válido).");
             return;
         }
 
         var eventType = (EventType)eventTypeByte;
 
-        // --- CORRECCIÓN AQUÍ ---
-        // Si el partido apenas está empezando, no hay estadísticas que actualizar.
-        // La persistencia ya se encarga de crear el registro inicial en cero.
         if (eventType == EventType.MatchStarted)
         {
             _logger.LogInformation("STATS-SERVICE: Ignorando evento MatchStarted (La inicialización la maneja Persistence).");
             return; 
         }
-        // -----------------------
 
-        var matchId = matchIdInt;
+        var stats = await dbContext.MatchStatistics.FindAsync(matchId);
 
-                        var stats = await dbContext.MatchStatistics.FindAsync(matchId);
+        int retries = 3; 
+        int delayMs = 100;
 
-                        int retries = 3; // Número de reintentos
+        while (stats is null && retries > 0)
+        {
+            _logger.LogWarning("STATS-SERVICE: No se encontró la entidad de estadísticas para MatchId: {MatchId}. Reintentando en {Delay}ms... ({Retries} reintentos restantes)", matchId, delayMs, retries);
+            await Task.Delay(delayMs);
+            stats = await dbContext.MatchStatistics.FindAsync(matchId); 
+            retries--;
+        }
 
-                        int delayMs = 100; // Retraso entre reintentos en milisegundos
-
-                
-
-                        while (stats is null && retries > 0)
-
-                        {
-
-                            _logger.LogWarning("STATS-SERVICE: No se encontró la entidad de estadísticas para MatchId: {MatchId}. Reintentando en {Delay}ms... ({Retries} reintentos restantes)", matchId, delayMs, retries);
-
-                            await Task.Delay(delayMs);
-
-                            stats = await dbContext.MatchStatistics.FindAsync(matchId); // Reintentar la búsqueda
-
-                            retries--;
-
-                        }
-
-                
-
-                        if (stats is null)
-
-                        {
-
-                            _logger.LogError("STATS-SERVICE: La entidad de estadísticas para MatchId: {MatchId} no se encontró después de varios reintentos. No se actualizarán las estadísticas para este evento.", matchId);
-
-                            return; // No se encontró, abortar procesamiento para este evento
-
-                        }
-
-                        
-
-                        _logger.LogInformation("STATS-SERVICE: Procesando evento {EventType} para MatchId: {MatchId}", eventType, matchId);
+        if (stats is null)
+        {
+            _logger.LogError("STATS-SERVICE: La entidad de estadísticas para MatchId: {MatchId} no se encontró después de varios reintentos. No se actualizarán las estadísticas para este evento.", matchId);
+            return; 
+        }
+        
+        _logger.LogInformation("STATS-SERVICE: Procesando evento {EventType} para MatchId: {MatchId}", eventType, matchId);
 
         stats.TotalEvents++;
 

@@ -16,12 +16,10 @@ public class EmailService : IEmailService
         _resend = resend;
     }
 
-    // 1. CAMBIO DE NOMBRE: Renombramos el parámetro a 'jsonEventString' para no chocar con el otro 'message'
     public async Task HandleEventAsync(string jsonEventString)
     {
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
-        // Usamos el nombre nuevo aquí
         using JsonDocument jsonDoc = JsonDocument.Parse(jsonEventString);
         var root = jsonDoc.RootElement;
 
@@ -33,23 +31,22 @@ public class EmailService : IEmailService
 
         var eventType = (Shared.Contracts.Enums.EventType)eventTypeByte;
 
-        // Manejo seguro por si MatchId no viene
-        int matchId = 0;
+        // CAMBIO: MatchId ahora es Guid (String en JSON)
+        string matchIdDisplay = "Desconocido";
         if (root.TryGetProperty("MatchId", out var matchIdElem))
         {
-            matchId = matchIdElem.GetInt32();
+            matchIdDisplay = matchIdElem.GetString() ?? "Desconocido";
         }
 
-        var subject = $"Alerta de Evento - {eventType} en Partido {matchId}";
+        var subject = $"Alerta de Evento - {eventType} en Partido {matchIdDisplay}";
 
-        // Usamos el nombre nuevo aquí también
         var formattedDetails = FormatEventDetails(jsonDoc, eventType);
 
         var htmlBody = $@"
             <html>
             <body>
                 <h1>¡Nuevo Evento en el Mundial!</h1>
-                <p>Se ha registrado un evento de tipo <b>{eventType}</b> en el Partido <b>{matchId}</b>.</p>
+                <p>Se ha registrado un evento de tipo <b>{eventType}</b> en el Partido <b>{matchIdDisplay}</b>.</p>
                 <p>Detalles del Evento:</p>
                 {formattedDetails}
                 <p>Saludos,</p>
@@ -57,11 +54,8 @@ public class EmailService : IEmailService
             </body>
             </html>";
 
-        // 2. CREACIÓN DEL CORREO: Usamos variable 'emailMessage' para ser claros
         var emailMessage = new EmailMessage();
-        emailMessage.From = "onboarding@resend.dev"; // Obligatorio en modo gratis
-
-        // 3. SOLUCIÓN ERROR LISTA: Resend.EmailAddressList se llena con .Add o inicializador
+        emailMessage.From = "onboarding@resend.dev"; 
         emailMessage.To.Add("i2310354@continental.edu.pe");
 
         emailMessage.Subject = subject;
@@ -69,21 +63,12 @@ public class EmailService : IEmailService
 
         try
         {
-            _logger.LogInformation("EMAIL-SERVICE: Intentando enviar correo a {To}", emailMessage.To[0]);
-
-            // 4. SOLUCIÓN RESPUESTA: La librería suele devolver el ID directamente o lanzar Excepción si falla.
-            // No intentamos leer .StatusCode porque la librería abstrae eso.
-            var response = await _resend.EmailSendAsync(emailMessage);
-
-            // Si llegamos a esta línea, es que funcionó.
-            // Dependiendo de la versión de la librería, 'response' puede ser el Guid (Id) o un objeto.
-            // Asumiremos que si no falló, todo está bien.
-
+            _logger.LogInformation("EMAIL-SERVICE: Intentando enviar correo para MatchId {MatchId}", matchIdDisplay);
+            await _resend.EmailSendAsync(emailMessage);
             _logger.LogInformation("EMAIL-SERVICE: Correo enviado con éxito.");
         }
         catch (Exception ex)
         {
-            // Aquí capturamos si Resend dice "Error" (400, 500, etc)
             _logger.LogError(ex, "EMAIL-SERVICE: Error al enviar correo vía Resend.");
         }
     }
@@ -92,14 +77,12 @@ public class EmailService : IEmailService
     {
         var root = jsonDoc.RootElement;
         var details = new List<string>();
-
-        // Declarar variables JsonElement una vez para evitar conflictos de ámbito
         JsonElement element;
 
-        // Siempre añadir MatchId si está presente
+        // CAMBIO: MatchId es String/Guid
         if (root.TryGetProperty("MatchId", out element) && element.ValueKind != JsonValueKind.Null)
         {
-            details.Add($"<b>ID de Partido:</b> {element.GetInt32()}");
+            details.Add($"<b>ID de Partido:</b> {element.GetString()}");
         }
 
         switch (eventType)
@@ -123,10 +106,6 @@ public class EmailService : IEmailService
                     details.Add($"<b>ID de Equipo:</b> {element.GetInt32()}");
                 if (root.TryGetProperty("PlayerId", out element))
                     details.Add($"<b>ID de Jugador:</b> {element.GetInt32()}");
-                if (root.TryGetProperty("NewHomeScore", out element))
-                    details.Add($"<b>Nuevo Marcador Local:</b> {element.GetInt32()}");
-                if (root.TryGetProperty("NewAwayScore", out element))
-                    details.Add($"<b>Nuevo Marcador Visitante:</b> {element.GetInt32()}");
                 break;
             case Shared.Contracts.Enums.EventType.Card:
                 if (root.TryGetProperty("Minute", out element))

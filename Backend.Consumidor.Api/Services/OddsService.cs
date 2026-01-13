@@ -14,18 +14,19 @@ namespace Backend.Consumidor.Api.Services;
 public class OddsService : IOddsService
 {
     private readonly ILogger<OddsService> _logger;
-    private readonly IServiceScopeFactory _scopeFactory; // Added
+    private readonly IServiceScopeFactory _scopeFactory;
 
-    // Simulate current odds (HomeWin, Draw, AwayWin) stored per MatchId
-    private readonly Dictionary<int, (double HomeWin, double Draw, double AwayWin)> _currentOdds = new();
+    // Modified: Dictionary key is now Guid
+    private readonly Dictionary<Guid, (double HomeWin, double Draw, double AwayWin)> _currentOdds = new();
 
-    public OddsService(ILogger<OddsService> logger, IServiceScopeFactory scopeFactory) // Modified constructor
+    public OddsService(ILogger<OddsService> logger, IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
     }
 
-    private (double HomeWin, double Draw, double AwayWin) InitializeOdds(int matchId)
+    // Modified: matchId is Guid
+    private (double HomeWin, double Draw, double AwayWin) InitializeOdds(Guid matchId)
     {
         var defaultOdds = (HomeWin: 2.5, Draw: 3.5, AwayWin: 3.0);
         _currentOdds[matchId] = defaultOdds;
@@ -34,7 +35,8 @@ public class OddsService : IOddsService
         return defaultOdds;
     }
 
-    public async Task AdjustOddsForEvent(int matchId, EventType eventType, string eventDetailsJson)
+    // Modified: matchId is Guid
+    public async Task AdjustOddsForEvent(Guid matchId, EventType eventType, string eventDetailsJson)
     {
         // Initialize odds for a new match if not present
         if (!_currentOdds.ContainsKey(matchId))
@@ -175,7 +177,8 @@ public class OddsService : IOddsService
                                matchId, homeWin, draw, awayWin);
     }
 
-    public (double HomeWin, double Draw, double AwayWin)? GetOdds(int matchId)
+    // Modified: matchId is Guid
+    public (double HomeWin, double Draw, double AwayWin)? GetOdds(Guid matchId)
     {
         // If odds are already in memory, return them.
         if (_currentOdds.TryGetValue(matchId, out var odds))
